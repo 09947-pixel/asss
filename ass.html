@@ -1,0 +1,778 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>เกมรับของ Action</title>
+
+<style>
+* {
+    box-sizing: border-box;
+    user-select: none;
+}
+
+body {
+    margin: 0;
+    background: #111827;
+    font-family: Arial, sans-serif;
+    color: white;
+    overflow: hidden;
+}
+
+#game {
+    display: block;
+    margin: auto;
+    background: linear-gradient(#172554, #0f172a);
+    border: 3px solid #38bdf8;
+    box-shadow: 0 0 30px #0284c7;
+}
+
+#menu {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background: rgba(0,0,0,.7);
+    z-index: 10;
+}
+
+.panel {
+    text-align: center;
+    background: #1e293b;
+    padding: 35px;
+    border-radius: 20px;
+    border: 2px solid #38bdf8;
+    box-shadow: 0 0 40px #0284c7;
+}
+
+h1 {
+    color: #38bdf8;
+    font-size: 42px;
+    margin-top: 0;
+}
+
+button {
+    border: none;
+    border-radius: 12px;
+    padding: 14px 30px;
+    font-size: 20px;
+    font-weight: bold;
+    cursor: pointer;
+    background: #22c55e;
+    color: white;
+    box-shadow: 0 5px 0 #15803d;
+}
+
+button:hover {
+    background: #4ade80;
+}
+
+.info {
+    line-height: 1.8;
+    color: #cbd5e1;
+}
+
+#mobileControls {
+    position: fixed;
+    bottom: 20px;
+    left: 0;
+    right: 0;
+    display: none;
+    justify-content: space-between;
+    padding: 0 30px;
+    pointer-events: none;
+}
+
+.control {
+    width: 75px;
+    height: 75px;
+    border-radius: 50%;
+    background: rgba(56,189,248,.35);
+    border: 2px solid #38bdf8;
+    color: white;
+    font-size: 30px;
+    pointer-events: auto;
+}
+</style>
+</head>
+
+<body>
+
+<canvas id="game" width="900" height="600"></canvas>
+
+<div id="menu">
+    <div class="panel">
+        <h1>🎯 รับของ ACTION</h1>
+
+        <div class="info">
+            🟢 รับของดี = +10 คะแนน<br>
+            🔴 ระเบิด = -1 ชีวิต<br>
+            ⭐ ของพิเศษ = +50 คะแนน<br>
+            <br>
+            ⬅️ ➡️ หรือ A / D เพื่อเคลื่อนที่
+        </div>
+
+        <br>
+
+        <button onclick="startGame()">เริ่มเกม</button>
+    </div>
+</div>
+
+<div id="mobileControls">
+    <button class="control" id="leftBtn">◀</button>
+    <button class="control" id="rightBtn">▶</button>
+</div>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+const W = canvas.width;
+const H = canvas.height;
+
+let gameRunning = false;
+let score = 0;
+let lives = 3;
+let level = 1;
+let combo = 0;
+
+let objects = [];
+let particles = [];
+
+const keys = {};
+
+const player = {
+    x: W / 2 - 35,
+    y: H - 90,
+    width: 70,
+    height: 55,
+    speed: 8
+};
+
+let spawnTimer = 0;
+let difficultyTimer = 0;
+
+// -------------------------
+// ควบคุม
+// -------------------------
+
+document.addEventListener("keydown", e => {
+    keys[e.key.toLowerCase()] = true;
+
+    if (
+        ["arrowleft", "arrowright", "a", "d", " "]
+        .includes(e.key.toLowerCase())
+    ) {
+        e.preventDefault();
+    }
+
+    if (e.key === " " && !gameRunning) {
+        startGame();
+    }
+});
+
+document.addEventListener("keyup", e => {
+    keys[e.key.toLowerCase()] = false;
+});
+
+// ปุ่มมือถือ
+function setupTouch(button, key) {
+    button.addEventListener("pointerdown", () => {
+        keys[key] = true;
+    });
+
+    button.addEventListener("pointerup", () => {
+        keys[key] = false;
+    });
+
+    button.addEventListener("pointerleave", () => {
+        keys[key] = false;
+    });
+}
+
+setupTouch(document.getElementById("leftBtn"), "arrowleft");
+setupTouch(document.getElementById("rightBtn"), "arrowright");
+
+// -------------------------
+// เริ่มเกม
+// -------------------------
+
+function startGame() {
+
+    score = 0;
+    lives = 3;
+    level = 1;
+    combo = 0;
+
+    objects = [];
+    particles = [];
+
+    player.x = W / 2 - player.width / 2;
+
+    spawnTimer = 0;
+    difficultyTimer = 0;
+
+    gameRunning = true;
+
+    document.getElementById("menu").style.display = "none";
+
+    requestAnimationFrame(gameLoop);
+}
+
+// -------------------------
+// สร้างของ
+// -------------------------
+
+function spawnObject() {
+
+    const random = Math.random();
+
+    let type;
+
+    if (random < 0.68) {
+        type = "good";
+    }
+    else if (random < 0.88) {
+        type = "bad";
+    }
+    else {
+        type = "star";
+    }
+
+    objects.push({
+        x: Math.random() * (W - 45),
+        y: -50,
+        size: 40,
+        speed: 3 + Math.random() * 2 + level * 0.3,
+        type: type,
+        rotation: 0
+    });
+}
+
+// -------------------------
+// วาดพื้นหลัง
+// -------------------------
+
+function drawBackground() {
+
+    const gradient = ctx.createLinearGradient(0,0,0,H);
+
+    gradient.addColorStop(0, "#172554");
+    gradient.addColorStop(1, "#020617");
+
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0,0,W,H);
+
+    // ดาว
+    ctx.fillStyle = "rgba(255,255,255,.6)";
+
+    for(let i=0;i<50;i++){
+
+        const x = (i * 137) % W;
+        const y = (i * 73) % H;
+
+        ctx.fillRect(x,y,2,2);
+    }
+
+    // พื้น
+    ctx.fillStyle = "#14532d";
+    ctx.fillRect(0,H-35,W,35);
+
+    ctx.fillStyle = "#22c55e";
+    ctx.fillRect(0,H-35,W,5);
+}
+
+// -------------------------
+// วาดผู้เล่น
+// -------------------------
+
+function drawPlayer() {
+
+    // เงา
+    ctx.fillStyle = "rgba(0,0,0,.3)";
+    ctx.beginPath();
+    ctx.ellipse(
+        player.x + player.width/2,
+        player.y + player.height + 5,
+        40,
+        8,
+        0,
+        0,
+        Math.PI * 2
+    );
+    ctx.fill();
+
+    // ตัว
+    ctx.fillStyle = "#38bdf8";
+    ctx.fillRect(
+        player.x + 10,
+        player.y + 15,
+        player.width - 20,
+        35
+    );
+
+    // หัว
+    ctx.fillStyle = "#fde68a";
+
+    ctx.beginPath();
+    ctx.arc(
+        player.x + player.width/2,
+        player.y + 12,
+        18,
+        0,
+        Math.PI * 2
+    );
+    ctx.fill();
+
+    // ผม
+    ctx.fillStyle = "#1e293b";
+
+    ctx.beginPath();
+    ctx.arc(
+        player.x + player.width/2,
+        player.y + 5,
+        18,
+        Math.PI,
+        Math.PI * 2
+    );
+    ctx.fill();
+
+    // ตา
+    ctx.fillStyle = "#111";
+
+    ctx.fillRect(player.x + 27, player.y + 10, 4, 4);
+    ctx.fillRect(player.x + 39, player.y + 10, 4, 4);
+
+    // แขน
+    ctx.fillStyle = "#fde68a";
+
+    ctx.fillRect(
+        player.x,
+        player.y + 20,
+        12,
+        25
+    );
+
+    ctx.fillRect(
+        player.x + player.width - 12,
+        player.y + 20,
+        12,
+        25
+    );
+
+    // เสื้อ
+    ctx.fillStyle = "#2563eb";
+
+    ctx.fillRect(
+        player.x + 22,
+        player.y + 20,
+        26,
+        25
+    );
+}
+
+// -------------------------
+// วาดของ
+// -------------------------
+
+function drawObject(obj) {
+
+    ctx.save();
+
+    ctx.translate(
+        obj.x + obj.size/2,
+        obj.y + obj.size/2
+    );
+
+    obj.rotation += 0.03;
+
+    if(obj.type === "good") {
+
+        ctx.fillStyle = "#22c55e";
+
+        ctx.beginPath();
+        ctx.arc(0,0,obj.size/2,0,Math.PI*2);
+        ctx.fill();
+
+        ctx.fillStyle = "white";
+        ctx.font = "26px Arial";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText("🍎",0,0);
+
+    }
+    else if(obj.type === "bad") {
+
+        ctx.fillStyle = "#ef4444";
+
+        ctx.beginPath();
+        ctx.arc(0,0,obj.size/2,0,Math.PI*2);
+        ctx.fill();
+
+        ctx.font = "25px Arial";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText("💣",0,0);
+
+    }
+    else {
+
+        ctx.rotate(obj.rotation);
+
+        ctx.fillStyle = "#facc15";
+
+        ctx.beginPath();
+
+        for(let i=0;i<10;i++){
+
+            const r = i % 2 === 0 ? 22 : 9;
+            const angle = i * Math.PI / 5;
+
+            const x = Math.cos(angle) * r;
+            const y = Math.sin(angle) * r;
+
+            if(i === 0) ctx.moveTo(x,y);
+            else ctx.lineTo(x,y);
+        }
+
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.fillStyle = "white";
+        ctx.font = "16px Arial";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText("★",0,0);
+    }
+
+    ctx.restore();
+}
+
+// -------------------------
+// อนุภาค
+// -------------------------
+
+function createParticles(x,y,color) {
+
+    for(let i=0;i<12;i++){
+
+        particles.push({
+            x:x,
+            y:y,
+            vx:(Math.random()-.5)*6,
+            vy:(Math.random()-.5)*6,
+            life:30,
+            color:color
+        });
+    }
+}
+
+function updateParticles(){
+
+    for(let i=particles.length-1;i>=0;i--){
+
+        const p = particles[i];
+
+        p.x += p.vx;
+        p.y += p.vy;
+        p.life--;
+
+        if(p.life <= 0){
+            particles.splice(i,1);
+        }
+    }
+}
+
+function drawParticles(){
+
+    particles.forEach(p => {
+
+        ctx.globalAlpha = p.life / 30;
+
+        ctx.fillStyle = p.color;
+
+        ctx.fillRect(
+            p.x,
+            p.y,
+            5,
+            5
+        );
+
+    });
+
+    ctx.globalAlpha = 1;
+}
+
+// -------------------------
+// ตรวจชน
+// -------------------------
+
+function collision(a,b){
+
+    return (
+        a.x < b.x + b.size &&
+        a.x + a.width > b.x &&
+        a.y < b.y + b.size &&
+        a.y + a.height > b.y
+    );
+}
+
+// -------------------------
+// อัปเดตเกม
+// -------------------------
+
+function update(){
+
+    // เคลื่อนที่
+    if(keys["arrowleft"] || keys["a"]){
+        player.x -= player.speed;
+    }
+
+    if(keys["arrowright"] || keys["d"]){
+        player.x += player.speed;
+    }
+
+    // จำกัดขอบ
+    if(player.x < 0){
+        player.x = 0;
+    }
+
+    if(player.x + player.width > W){
+        player.x = W - player.width;
+    }
+
+    // สร้างของ
+    spawnTimer--;
+
+    if(spawnTimer <= 0){
+
+        spawnObject();
+
+        spawnTimer = Math.max(
+            20,
+            55 - level * 3
+        );
+    }
+
+    // เพิ่มระดับ
+    difficultyTimer++;
+
+    if(difficultyTimer > 900){
+
+        level++;
+
+        difficultyTimer = 0;
+    }
+
+    // เคลื่อนของ
+    for(let i=objects.length-1;i>=0;i--){
+
+        const obj = objects[i];
+
+        obj.y += obj.speed;
+
+        // ชน
+        if(collision(player,obj)){
+
+            if(obj.type === "good"){
+
+                score += 10;
+                combo++;
+
+                createParticles(
+                    obj.x,
+                    obj.y,
+                    "#22c55e"
+                );
+
+            }
+            else if(obj.type === "star"){
+
+                score += 50;
+                combo++;
+
+                createParticles(
+                    obj.x,
+                    obj.y,
+                    "#facc15"
+                );
+
+            }
+            else {
+
+                lives--;
+                combo = 0;
+
+                createParticles(
+                    obj.x,
+                    obj.y,
+                    "#ef4444"
+                );
+
+                if(lives <= 0){
+
+                    gameOver();
+                }
+            }
+
+            objects.splice(i,1);
+            continue;
+        }
+
+        // หลุดจอ
+        if(obj.y > H){
+
+            if(obj.type === "good"){
+                combo = 0;
+            }
+
+            objects.splice(i,1);
+        }
+    }
+
+    updateParticles();
+}
+
+// -------------------------
+// HUD
+// -------------------------
+
+function drawHUD(){
+
+    ctx.fillStyle = "rgba(15,23,42,.8)";
+    ctx.fillRect(0,0,W,65);
+
+    ctx.font = "bold 20px Arial";
+    ctx.fillStyle = "white";
+
+    ctx.fillText(
+        "คะแนน: " + score,
+        20,
+        40
+    );
+
+    ctx.fillText(
+        "❤️ ".repeat(lives),
+        250,
+        40
+    );
+
+    ctx.fillText(
+        "ด่าน: " + level,
+        450,
+        40
+    );
+
+    ctx.fillStyle = "#facc15";
+
+    ctx.fillText(
+        "คอมโบ: x" + combo,
+        650,
+        40
+    );
+}
+
+// -------------------------
+// Game Loop
+// -------------------------
+
+function gameLoop(){
+
+    if(!gameRunning) return;
+
+    update();
+
+    drawBackground();
+
+    objects.forEach(drawObject);
+
+    drawPlayer();
+
+    drawParticles();
+
+    drawHUD();
+
+    requestAnimationFrame(gameLoop);
+}
+
+// -------------------------
+// Game Over
+// -------------------------
+
+function gameOver(){
+
+    gameRunning = false;
+
+    setTimeout(() => {
+
+        document.getElementById("menu").innerHTML = `
+
+            <div class="panel">
+
+                <h1>💥 GAME OVER</h1>
+
+                <h2>คะแนนของคุณ</h2>
+
+                <div style="
+                    font-size:50px;
+                    color:#facc15;
+                    font-weight:bold;
+                ">
+                    ${score}
+                </div>
+
+                <p>
+                    คุณไปถึงด่าน ${level}
+                </p>
+
+                <br>
+
+                <button onclick="startGame()">
+                    🔄 เล่นอีกครั้ง
+                </button>
+
+            </div>
+        `;
+
+        document.getElementById("menu").style.display = "flex";
+
+    },500);
+}
+
+// -------------------------
+// ปรับหน้าจอ
+// -------------------------
+
+function resize(){
+
+    const ratio = W/H;
+
+    let width = window.innerWidth;
+    let height = window.innerHeight;
+
+    if(width / height > ratio){
+        canvas.style.height = height + "px";
+        canvas.style.width = (height * ratio) + "px";
+    }
+    else{
+        canvas.style.width = width + "px";
+        canvas.style.height = (width / ratio) + "px";
+    }
+
+    if(window.innerWidth < 700){
+        document.getElementById("mobileControls").style.display = "flex";
+    }
+    else{
+        document.getElementById("mobileControls").style.display = "none";
+    }
+}
+
+window.addEventListener("resize", resize);
+
+resize();
+
+</script>
+
+</body>
+</html>
